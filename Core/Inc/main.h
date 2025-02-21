@@ -31,12 +31,15 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include<stdio.h>
+#include "bme680_defs.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
-struct bme68x_dev bme;
+BME68X_INTF_RET_TYPE user_i2c_read(uint8_t reg_addr, uint8_t *data, uint32_t len, void *intf_ptr);
+BME68X_INTF_RET_TYPE user_i2c_write(uint8_t reg_addr, const uint8_t *data, uint32_t len, void *intf_ptr);
+void bme68x_delay_us(uint32_t period, void *ntf_ptr);
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -53,8 +56,7 @@ struct bme68x_dev bme;
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-int8_t user_i2c_read(uint8_t dev_id, uint8_t reg_addr, uint8_t *data, uint16_t len);
-int8_t user_i2c_write(uint8_t dev_id, uint8_t reg_addr, uint8_t *data, uint16_t len);
+
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

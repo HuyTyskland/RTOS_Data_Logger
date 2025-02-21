@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "bme680_defs.h"
+#include "string.h"
 #include "bme680.h"
 /* USER CODE END Includes */
 
@@ -32,6 +32,15 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define hum_os BME68X_OS_16X
+#define pres_os BME68X_OS_1X
+#define temp_os BME68X_OS_2X
+#define iir_filter BME68X_FILTER_OFF
+#define odr_time BME68X_ODR_NONE
+
+#define htr_enable BME68X_ENABLE
+#define htr_dur BME68X_HEATR_DUR1
+#define htr_temp BME68X_HIGH_TEMP
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -45,7 +54,12 @@ I2C_HandleTypeDef hi2c1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+uint8_t n_fields;
 
+const char *init_fail = "Init function fail\n";
+const char *conf_failt = "Configuration function fail\n";
+const char *htr_conf_fail = "Heater configuration fail\n";
+const char *rd_dt_fail = "Data reading fail\n";
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -54,7 +68,9 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
-static void
+static void printmsg(const char* msg);
+static int8_t bme680_config(struct bme68x_dev*);
+static int8_t bme680_htr_config(struct bme68x_dev*);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -93,16 +109,35 @@ int main(void)
   MX_I2C1_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  struct bme68x_dev bme;
+  struct bme68x_data data;
+  char msg[100];
+
   bme.chip_id = BME68X_I2C_ADDR_LOW;
   bme.intf = BME68X_I2C_INTF;
   bme.read = user_i2c_read;
   bme.write = user_i2c_write;
-  bme.delay_us = HAL_Delay;
-
+  bme.delay_us = bme68x_delay_us;
+  // initialise
   int8_t result = bme68x_init(&bme);
   if(result != BME68X_OK)
   {
   	// print error using UART
+  	printmsg(init_fail);
+  }
+  // configure oversampling
+  result = bme680_config(&bme);
+  if(result != BME68X_OK)
+  {
+  	// print error using UART
+  	printmsg(conf_failt);
+  }
+  // configure heater
+  result = bme680_htr_config(&bme);
+  if(result != BME68X_OK)
+  {
+  	// print error using UART
+  	printmsg(htr_conf_fail);
   }
   /* USER CODE END 2 */
 
@@ -111,7 +146,18 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
+  	if(bme68x_get_data(BME68X_FORCED_MODE, &data, &n_fields, &bme) == 0)
+  	{
+  		// print out data
+  		int len = snprintf(msg, 100, "Temperature: %.2f, Pressure: %.2f, Humidity: %.2f", data.temperature, data.pressure, data.humidity);
+  		HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
+  	}
+  	else
+  	{
+  		// print out error
+  		printmsg(rd_dt_fail);
+  	}
+  	HAL_Delay(1000);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -361,16 +407,54 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-int8_t user_i2c_read(uint8_t dev_id, uint8_t reg_addr, uint8_t *data, uint16_t len)
+static void printmsg(const char* msg)
 {
-  HAL_I2C_Master_Receive(&hi2c1, (dev_id << 1) | 0x01, &reg_addr, 1, data, len, 1000); // Adjust timeout
+	HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+}
+
+BME68X_INTF_RET_TYPE user_i2c_read(uint8_t reg_addr, uint8_t *data, uint32_t len, void *intf_ptr)
+{
+	uint8_t dev_addr = *(uint8_t*)intf_ptr;
+	(void)intf_ptr;
+	HAL_I2C_Mem_Read(&hi2c1, (dev_addr << 1) | 0x01, reg_addr, 1, data, len, 15);
   return 0; // Success
 }
 
-int8_t user_i2c_write(uint8_t dev_id, uint8_t reg_addr, uint8_t *data, uint16_t len)
+BME68X_INTF_RET_TYPE user_i2c_write(uint8_t reg_addr, const uint8_t *data, uint32_t len, void *intf_ptr)
 {
-  HAL_I2C_Master_Transmit(&hi2c1, (dev_id << 1), &reg_addr, 1, data, len, 1000); // Adjust timeout
+	uint8_t dev_addr = *(uint8_t*)intf_ptr;
+	(void)intf_ptr;
+  HAL_I2C_Mem_Write(&hi2c1, (dev_addr << 1) | 0x01, reg_addr, 1, (uint8_t*)data, len, 15);
   return 0; // Success
+}
+
+void bme68x_delay_us(uint32_t period, void *ntf_ptr)
+{
+	HAL_Delay(period/1000);
+}
+
+static int8_t bme680_config(struct bme68x_dev* bme680_ptr)
+{
+	struct bme68x_conf sensor_conf;
+	sensor_conf.filter = iir_filter;
+	sensor_conf.odr = odr_time;
+	sensor_conf.os_hum = hum_os;
+	sensor_conf.os_pres = pres_os;
+	sensor_conf.os_temp = temp_os;
+
+	int8_t rslt = bme68x_set_conf(&sensor_conf, bme680_ptr);
+	return rslt;
+}
+
+static int8_t bme680_htr_config(struct bme68x_dev* bme680_ptr)
+{
+	struct bme68x_heatr_conf htr_conf;
+	htr_conf.enable = htr_enable;
+	htr_conf.heatr_dur = htr_dur;
+	htr_conf.heatr_temp = htr_temp;
+
+	int8_t rslt = bme68x_set_heatr_conf(BME68X_FORCED_MODE, &htr_conf, bme680_ptr);
+	return rslt;
 }
 /* USER CODE END 4 */
 
