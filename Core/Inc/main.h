@@ -40,6 +40,7 @@ extern "C" {
 BME68X_INTF_RET_TYPE user_i2c_read(uint8_t reg_addr, uint8_t *data, uint32_t len, void *intf_ptr);
 BME68X_INTF_RET_TYPE user_i2c_write(uint8_t reg_addr, const uint8_t *data, uint32_t len, void *intf_ptr);
 void bme68x_delay_us(uint32_t period, void *ntf_ptr);
+void printmsg(const char* msg);
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -49,7 +50,7 @@ void bme68x_delay_us(uint32_t period, void *ntf_ptr);
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
-
+extern UART_HandleTypeDef huart2;
 /* USER CODE END EM */
 
 /* Exported functions prototypes ---------------------------------------------*/

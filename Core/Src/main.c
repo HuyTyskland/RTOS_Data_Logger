@@ -56,10 +56,16 @@ UART_HandleTypeDef huart2;
 /* USER CODE BEGIN PV */
 uint8_t n_fields;
 
+const char *begin_msg = "Data Logger begins!\n";
 const char *init_fail = "Init function fail\n";
+const char *init_suc = "Init function success\n";
 const char *conf_failt = "Configuration function fail\n";
+const char *conf_suc = "Configuration function success\n";
 const char *htr_conf_fail = "Heater configuration fail\n";
+const char *htr_conf_suc = "Heater configuration success\n";
 const char *rd_dt_fail = "Data reading fail\n";
+const char *rd_dt_suc = "Data reading success\n";
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -68,7 +74,6 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
-static void printmsg(const char* msg);
 static int8_t bme680_config(struct bme68x_dev*);
 static int8_t bme680_htr_config(struct bme68x_dev*);
 /* USER CODE END PFP */
@@ -113,17 +118,22 @@ int main(void)
   struct bme68x_data data;
   char msg[100];
 
-  bme.chip_id = BME68X_I2C_ADDR_LOW;
+  bme.chip_id = BME68X_I2C_ADDR_HIGH;
   bme.intf = BME68X_I2C_INTF;
   bme.read = user_i2c_read;
   bme.write = user_i2c_write;
   bme.delay_us = bme68x_delay_us;
+  printmsg(begin_msg);
   // initialise
   int8_t result = bme68x_init(&bme);
   if(result != BME68X_OK)
   {
   	// print error using UART
   	printmsg(init_fail);
+  }
+  else
+  {
+  	printmsg(init_suc);
   }
   // configure oversampling
   result = bme680_config(&bme);
@@ -132,12 +142,20 @@ int main(void)
   	// print error using UART
   	printmsg(conf_failt);
   }
+  else
+  {
+  	printmsg(conf_suc);
+  }
   // configure heater
   result = bme680_htr_config(&bme);
   if(result != BME68X_OK)
   {
   	// print error using UART
   	printmsg(htr_conf_fail);
+  }
+  else
+  {
+  	printmsg(htr_conf_suc);
   }
   /* USER CODE END 2 */
 
@@ -149,6 +167,7 @@ int main(void)
   	if(bme68x_get_data(BME68X_FORCED_MODE, &data, &n_fields, &bme) == 0)
   	{
   		// print out data
+  		printmsg(rd_dt_suc);
   		int len = snprintf(msg, 100, "Temperature: %.2f, Pressure: %.2f, Humidity: %.2f", data.temperature, data.pressure, data.humidity);
   		HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
   	}
@@ -407,23 +426,25 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-static void printmsg(const char* msg)
+void printmsg(const char* msg)
 {
 	HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
 }
 
 BME68X_INTF_RET_TYPE user_i2c_read(uint8_t reg_addr, uint8_t *data, uint32_t len, void *intf_ptr)
 {
-	uint8_t dev_addr = *(uint8_t*)intf_ptr;
-	(void)intf_ptr;
+	//	uint8_t dev_addr = *(uint8_t*)intf_ptr;
+	//	(void)intf_ptr;
+	uint8_t dev_addr = BME68X_I2C_ADDR_HIGH;
 	HAL_I2C_Mem_Read(&hi2c1, (dev_addr << 1) | 0x01, reg_addr, 1, data, len, 15);
   return 0; // Success
 }
 
 BME68X_INTF_RET_TYPE user_i2c_write(uint8_t reg_addr, const uint8_t *data, uint32_t len, void *intf_ptr)
 {
-	uint8_t dev_addr = *(uint8_t*)intf_ptr;
-	(void)intf_ptr;
+//	uint8_t dev_addr = *(uint8_t*)intf_ptr;
+//	(void)intf_ptr;
+	uint8_t dev_addr = BME68X_I2C_ADDR_HIGH;
   HAL_I2C_Mem_Write(&hi2c1, (dev_addr << 1) | 0x01, reg_addr, 1, (uint8_t*)data, len, 15);
   return 0; // Success
 }

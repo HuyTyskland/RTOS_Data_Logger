@@ -7,6 +7,7 @@
 
 
 #include "bme680.h"
+#include "main.h"
 #include <stdio.h>
 
 /* This internal API is used to read the calibration coefficients */
@@ -113,23 +114,29 @@ static int8_t analyze_sensor_data(const struct bme68x_data *data, uint8_t n_meas
 */
 int8_t bme68x_init(struct bme68x_dev *dev)
 {
+		char msg[50];
     int8_t rslt;
 
     (void) bme68x_soft_reset(dev);
 
     rslt = bme68x_get_regs(BME68X_REG_CHIP_ID, &dev->chip_id, 1, dev);
-
+    int len = snprintf(msg, 50, "1.rslt: %u\n", rslt);
+    HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
     if (rslt == BME68X_OK)
     {
         if (dev->chip_id == BME68X_CHIP_ID)
         {
             /* Read Variant ID */
             rslt = read_variant_id(dev);
+            len = snprintf(msg, 50, "2.rslt: %u\n", rslt);
+            HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
 
             if (rslt == BME68X_OK)
             {
                 /* Get the Calibration data */
                 rslt = get_calib_data(dev);
+                len = snprintf(msg, 50, "3.rslt: %u\n", rslt);
+                HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
             }
         }
         else
@@ -137,7 +144,8 @@ int8_t bme68x_init(struct bme68x_dev *dev)
             rslt = BME68X_E_DEV_NOT_FOUND;
         }
     }
-
+    len = snprintf(msg, 50, "4.rslt: %u\n", rslt);
+    HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
     return rslt;
 }
 
