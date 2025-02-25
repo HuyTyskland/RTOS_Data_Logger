@@ -63,6 +63,8 @@ const char *conf_failt = "Configuration function fail\n";
 const char *conf_suc = "Configuration function success\n";
 const char *htr_conf_fail = "Heater configuration fail\n";
 const char *htr_conf_suc = "Heater configuration success\n";
+const char *op_mode_fail = "Setting Op Mode fail\n";
+const char *op_mode_suc = "Setting Op Mode success\n";
 const char *rd_dt_fail = "Data reading fail\n";
 const char *rd_dt_suc = "Data reading success\n";
 
@@ -117,23 +119,34 @@ int main(void)
   struct bme68x_dev bme;
   struct bme68x_data data;
   char msg[100];
+  uint8_t dev_addr;
+  int len;
+  int8_t result;
 
-  bme.chip_id = BME68X_I2C_ADDR_HIGH;
+  dev_addr = BME68X_I2C_ADDR_LOW;
   bme.intf = BME68X_I2C_INTF;
   bme.read = user_i2c_read;
   bme.write = user_i2c_write;
   bme.delay_us = bme68x_delay_us;
+  bme.intf_ptr = &dev_addr;
+  bme.amb_temp = 25;
   printmsg(begin_msg);
-  // initialise
-  int8_t result = bme68x_init(&bme);
-  if(result != BME68X_OK)
+  // initialize
+  uint8_t attempt_count = 0;
+  while(attempt_count < 5)
   {
-  	// print error using UART
-  	printmsg(init_fail);
-  }
-  else
-  {
-  	printmsg(init_suc);
+  	result = bme68x_init(&bme);
+  	print_error(result);
+		if(result != BME68X_OK)
+		{
+			// print error using UART
+			printmsg(init_fail);
+		}
+		else
+		{
+			printmsg(init_suc);
+		}
+		attempt_count++;
   }
   // configure oversampling
   result = bme680_config(&bme);
@@ -157,6 +170,16 @@ int main(void)
   {
   	printmsg(htr_conf_suc);
   }
+  // set operation mode
+  result = bme68x_set_op_mode(BME68X_FORCED_MODE, &bme);
+  if(result != BME68X_OK)
+  {
+  	printmsg(op_mode_fail);
+  }
+  else
+  {
+  	printmsg(op_mode_suc);
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -164,7 +187,8 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-  	if(bme68x_get_data(BME68X_FORCED_MODE, &data, &n_fields, &bme) == 0)
+  	result = bme68x_get_data(BME68X_FORCED_MODE, &data, &n_fields, &bme);
+  	if(result == 0)
   	{
   		// print out data
   		printmsg(rd_dt_suc);
@@ -175,6 +199,8 @@ int main(void)
   	{
   		// print out error
   		printmsg(rd_dt_fail);
+  		len = snprintf(msg, 50, "result of data getting: %d\n", result);
+  		HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
   	}
   	HAL_Delay(1000);
     /* USER CODE BEGIN 3 */
@@ -433,19 +459,17 @@ void printmsg(const char* msg)
 
 BME68X_INTF_RET_TYPE user_i2c_read(uint8_t reg_addr, uint8_t *data, uint32_t len, void *intf_ptr)
 {
-	//	uint8_t dev_addr = *(uint8_t*)intf_ptr;
-	//	(void)intf_ptr;
-	uint8_t dev_addr = BME68X_I2C_ADDR_HIGH;
-	HAL_I2C_Mem_Read(&hi2c1, (dev_addr << 1) | 0x01, reg_addr, 1, data, len, 15);
+	uint8_t dev_addr = *(uint8_t*)intf_ptr;
+	(void)intf_ptr;
+	HAL_I2C_Mem_Read(&hi2c1, (dev_addr << 1), reg_addr, 1, data, len, 15);
   return 0; // Success
 }
 
 BME68X_INTF_RET_TYPE user_i2c_write(uint8_t reg_addr, const uint8_t *data, uint32_t len, void *intf_ptr)
 {
-//	uint8_t dev_addr = *(uint8_t*)intf_ptr;
-//	(void)intf_ptr;
-	uint8_t dev_addr = BME68X_I2C_ADDR_HIGH;
-  HAL_I2C_Mem_Write(&hi2c1, (dev_addr << 1) | 0x01, reg_addr, 1, (uint8_t*)data, len, 15);
+	uint8_t dev_addr = *(uint8_t*)intf_ptr;
+	(void)intf_ptr;
+  HAL_I2C_Mem_Write(&hi2c1, (dev_addr << 1), reg_addr, 1, (uint8_t*)data, len, 15);
   return 0; // Success
 }
 
@@ -476,6 +500,61 @@ static int8_t bme680_htr_config(struct bme68x_dev* bme680_ptr)
 
 	int8_t rslt = bme68x_set_heatr_conf(BME68X_FORCED_MODE, &htr_conf, bme680_ptr);
 	return rslt;
+}
+
+void print_error(int8_t result)
+{
+	const char *return_msg;
+	if(result == BME68X_E_NULL_PTR)
+	{
+		return_msg = "Init Result: BME68X_E_NULL_PTR";
+		printmsg(return_msg);
+	}
+	else if(result == BME68X_E_COM_FAIL)
+	{
+		return_msg = "Init Result: BME68X_E_COM_FAIL";
+		printmsg(return_msg);
+	}
+	else if(result == BME68X_E_DEV_NOT_FOUND)
+	{
+		return_msg = "Init Result: BME68X_E_DEV_NOT_FOUND";
+		printmsg(return_msg);
+	}
+	else if(result == BME68X_E_INVALID_LENGTH)
+	{
+		return_msg = "Init Result: BME68X_E_INVALID_LENGTH";
+		printmsg(return_msg);
+	}
+	else if(result == BME68X_E_SELF_TEST)
+	{
+		return_msg = "Init Result: BME68X_E_SELF_TEST";
+		printmsg(return_msg);
+	}
+	else if(result == BME68X_W_DEFINE_OP_MODE)
+	{
+		return_msg = "Init Result: BME68X_W_DEFINE_OP_MODE";
+		printmsg(return_msg);
+	}
+	else if(result == BME68X_W_NO_NEW_DATA)
+	{
+		return_msg = "Init Result: BME68X_W_NO_NEW_DATA";
+		printmsg(return_msg);
+	}
+	else if(result == BME68X_W_DEFINE_SHD_HEATR_DUR)
+	{
+		return_msg = "Init Result: BME68X_W_DEFINE_SHD_HEATR_DUR";
+		printmsg(return_msg);
+	}
+	else if(result == BME68X_I_PARAM_CORR)
+	{
+		return_msg = "Init Result: BME68X_I_PARAM_CORR";
+		printmsg(return_msg);
+	}
+	else
+	{
+		return_msg = "Init Result: Not identified";
+		printmsg(return_msg);
+	}
 }
 /* USER CODE END 4 */
 
