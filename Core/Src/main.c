@@ -123,7 +123,7 @@ int main(void)
   int len;
   int8_t result;
 
-  dev_addr = BME68X_I2C_ADDR_LOW;
+  dev_addr = BME68X_I2C_ADDR_HIGH;
   bme.intf = BME68X_I2C_INTF;
   bme.read = user_i2c_read;
   bme.write = user_i2c_write;
@@ -132,22 +132,17 @@ int main(void)
   bme.amb_temp = 25;
   printmsg(begin_msg);
   // initialize
-  uint8_t attempt_count = 0;
-  while(attempt_count < 5)
-  {
-  	result = bme68x_init(&bme);
-  	print_error(result);
-		if(result != BME68X_OK)
-		{
-			// print error using UART
-			printmsg(init_fail);
-		}
-		else
-		{
-			printmsg(init_suc);
-		}
-		attempt_count++;
-  }
+  result = bme68x_init(&bme);
+	print_error(result);
+	if(result != BME68X_OK)
+	{
+		// print error using UART
+		printmsg(init_fail);
+	}
+	else
+	{
+		printmsg(init_suc);
+	}
   // configure oversampling
   result = bme680_config(&bme);
   if(result != BME68X_OK)
@@ -186,8 +181,9 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
+  	// get data
   	result = bme68x_get_data(BME68X_FORCED_MODE, &data, &n_fields, &bme);
+  	print_error(result);
   	if(result == 0)
   	{
   		// print out data
@@ -203,6 +199,8 @@ int main(void)
   		HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
   	}
   	HAL_Delay(1000);
+    /* USER CODE END WHILE */
+
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -460,16 +458,19 @@ void printmsg(const char* msg)
 BME68X_INTF_RET_TYPE user_i2c_read(uint8_t reg_addr, uint8_t *data, uint32_t len, void *intf_ptr)
 {
 	uint8_t dev_addr = *(uint8_t*)intf_ptr;
-	(void)intf_ptr;
-	HAL_I2C_Mem_Read(&hi2c1, (dev_addr << 1), reg_addr, 1, data, len, 15);
+	uint16_t DevAddress = dev_addr <<1;
+//  HAL_I2C_Master_Transmit(&hi2c1, DevAddress, &reg_addr, 1, 1000);
+//  HAL_I2C_Master_Receive(&hi2c1, DevAddress, data, len, 1000);
+	HAL_I2C_Mem_Read(&hi2c1, DevAddress, reg_addr, 1, data, len, 15);
   return 0; // Success
 }
 
 BME68X_INTF_RET_TYPE user_i2c_write(uint8_t reg_addr, const uint8_t *data, uint32_t len, void *intf_ptr)
 {
 	uint8_t dev_addr = *(uint8_t*)intf_ptr;
-	(void)intf_ptr;
-  HAL_I2C_Mem_Write(&hi2c1, (dev_addr << 1), reg_addr, 1, (uint8_t*)data, len, 15);
+	uint16_t DevAddress = dev_addr <<1;
+//	HAL_I2C_Master_Transmit(&hi2c1, DevAddress, &reg_addr, len+1, 1000);
+	HAL_I2C_Mem_Write(&hi2c1, DevAddress, reg_addr, 1, (uint8_t*)data, len, 15);
   return 0; // Success
 }
 
@@ -505,54 +506,59 @@ static int8_t bme680_htr_config(struct bme68x_dev* bme680_ptr)
 void print_error(int8_t result)
 {
 	const char *return_msg;
-	if(result == BME68X_E_NULL_PTR)
+	if(result == BME68X_OK)
 	{
-		return_msg = "Init Result: BME68X_E_NULL_PTR";
+		return_msg = "Init Result: BME68X_OK\n";
+		printmsg(return_msg);
+	}
+	else if(result == BME68X_E_NULL_PTR)
+	{
+		return_msg = "Init Result: BME68X_E_NULL_PTR\n";
 		printmsg(return_msg);
 	}
 	else if(result == BME68X_E_COM_FAIL)
 	{
-		return_msg = "Init Result: BME68X_E_COM_FAIL";
+		return_msg = "Init Result: BME68X_E_COM_FAIL\n";
 		printmsg(return_msg);
 	}
 	else if(result == BME68X_E_DEV_NOT_FOUND)
 	{
-		return_msg = "Init Result: BME68X_E_DEV_NOT_FOUND";
+		return_msg = "Init Result: BME68X_E_DEV_NOT_FOUND\n";
 		printmsg(return_msg);
 	}
 	else if(result == BME68X_E_INVALID_LENGTH)
 	{
-		return_msg = "Init Result: BME68X_E_INVALID_LENGTH";
+		return_msg = "Init Result: BME68X_E_INVALID_LENGTH\n";
 		printmsg(return_msg);
 	}
 	else if(result == BME68X_E_SELF_TEST)
 	{
-		return_msg = "Init Result: BME68X_E_SELF_TEST";
+		return_msg = "Init Result: BME68X_E_SELF_TEST\n";
 		printmsg(return_msg);
 	}
 	else if(result == BME68X_W_DEFINE_OP_MODE)
 	{
-		return_msg = "Init Result: BME68X_W_DEFINE_OP_MODE";
+		return_msg = "Init Result: BME68X_W_DEFINE_OP_MODE\n";
 		printmsg(return_msg);
 	}
 	else if(result == BME68X_W_NO_NEW_DATA)
 	{
-		return_msg = "Init Result: BME68X_W_NO_NEW_DATA";
+		return_msg = "Init Result: BME68X_W_NO_NEW_DATA\n";
 		printmsg(return_msg);
 	}
 	else if(result == BME68X_W_DEFINE_SHD_HEATR_DUR)
 	{
-		return_msg = "Init Result: BME68X_W_DEFINE_SHD_HEATR_DUR";
+		return_msg = "Init Result: BME68X_W_DEFINE_SHD_HEATR_DUR\n";
 		printmsg(return_msg);
 	}
 	else if(result == BME68X_I_PARAM_CORR)
 	{
-		return_msg = "Init Result: BME68X_I_PARAM_CORR";
+		return_msg = "Init Result: BME68X_I_PARAM_CORR\n";
 		printmsg(return_msg);
 	}
 	else
 	{
-		return_msg = "Init Result: Not identified";
+		return_msg = "Init Result: Not identified\n";
 		printmsg(return_msg);
 	}
 }
