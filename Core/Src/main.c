@@ -68,6 +68,8 @@ const char *op_mode_suc = "Setting Op Mode success\n";
 const char *rd_dt_fail = "Data reading fail\n";
 const char *rd_dt_suc = "Data reading success\n";
 
+struct bme68x_conf sensor_conf;
+struct bme68x_heatr_conf htr_conf;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -122,6 +124,7 @@ int main(void)
   uint8_t dev_addr;
   int len;
   int8_t result;
+  uint32_t del_period;
 
   dev_addr = BME68X_I2C_ADDR_HIGH;
   bme.intf = BME68X_I2C_INTF;
@@ -165,22 +168,25 @@ int main(void)
   {
   	printmsg(htr_conf_suc);
   }
-  // set operation mode
-  result = bme68x_set_op_mode(BME68X_FORCED_MODE, &bme);
-  if(result != BME68X_OK)
-  {
-  	printmsg(op_mode_fail);
-  }
-  else
-  {
-  	printmsg(op_mode_suc);
-  }
+//  // set operation mode
+//  result = bme68x_set_op_mode(BME68X_FORCED_MODE, &bme);
+//  if(result != BME68X_OK)
+//  {
+//  	printmsg(op_mode_fail);
+//  }
+//  else
+//  {
+//  	printmsg(op_mode_suc);
+//  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+  	result = bme68x_set_op_mode(BME68X_FORCED_MODE, &bme);
+		del_period = bme68x_get_meas_dur(BME68X_FORCED_MODE, &sensor_conf, &bme) + (htr_conf.heatr_dur * 1000);
+		bme.delay_us(del_period, bme.intf_ptr);
   	// get data
   	result = bme68x_get_data(BME68X_FORCED_MODE, &data, &n_fields, &bme);
   	print_error(result);
@@ -188,7 +194,7 @@ int main(void)
   	{
   		// print out data
   		printmsg(rd_dt_suc);
-  		int len = snprintf(msg, 100, "Temperature: %.2f, Pressure: %.2f, Humidity: %.2f", data.temperature, data.pressure, data.humidity);
+  		int len = snprintf(msg, 100, "Temperature: %.2f, Pressure: %.2f, Humidity: %.2f\n", data.temperature, data.pressure, data.humidity);
   		HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
   	}
   	else
@@ -198,7 +204,7 @@ int main(void)
   		len = snprintf(msg, 50, "result of data getting: %d\n", result);
   		HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
   	}
-  	HAL_Delay(1000);
+  	HAL_Delay(500);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -481,7 +487,6 @@ void bme68x_delay_us(uint32_t period, void *ntf_ptr)
 
 static int8_t bme680_config(struct bme68x_dev* bme680_ptr)
 {
-	struct bme68x_conf sensor_conf;
 	sensor_conf.filter = iir_filter;
 	sensor_conf.odr = odr_time;
 	sensor_conf.os_hum = hum_os;
@@ -494,7 +499,6 @@ static int8_t bme680_config(struct bme68x_dev* bme680_ptr)
 
 static int8_t bme680_htr_config(struct bme68x_dev* bme680_ptr)
 {
-	struct bme68x_heatr_conf htr_conf;
 	htr_conf.enable = htr_enable;
 	htr_conf.heatr_dur = htr_dur;
 	htr_conf.heatr_temp = htr_temp;
