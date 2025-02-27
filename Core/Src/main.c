@@ -21,6 +21,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include<stdio.h>
+#include "FreeRTOS.h"
+#include "task.h"
 #include "string.h"
 #include "bme680.h"
 /* USER CODE END Includes */
@@ -41,6 +44,10 @@
 #define htr_enable BME68X_ENABLE
 #define htr_dur BME68X_HEATR_DUR1
 #define htr_temp BME68X_HIGH_TEMP
+
+#define max_number_of_data_fail 10
+
+#define DWT_CTRL (*(volatile uint32_t*)0xE0001000)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -54,8 +61,6 @@ I2C_HandleTypeDef hi2c1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-uint8_t n_fields;
-
 const char *begin_msg = "Data Logger begins!\n";
 const char *init_fail = "Init function fail\n";
 const char *init_suc = "Init function success\n";
@@ -68,8 +73,16 @@ const char *op_mode_suc = "Setting Op Mode success\n";
 const char *rd_dt_fail = "Data reading fail\n";
 const char *rd_dt_suc = "Data reading success\n";
 
+uint8_t n_fields;
+
 struct bme68x_conf sensor_conf;
 struct bme68x_heatr_conf htr_conf;
+
+TaskHandle_t sensor_handle;
+TaskHandle_t task2_handle;
+
+struct bme68x_dev bme;
+struct bme68x_data data;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -78,8 +91,12 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
+static void bme680_interface_init(struct bme68x_dev*);
 static int8_t bme680_config(struct bme68x_dev*);
 static int8_t bme680_htr_config(struct bme68x_dev*);
+
+static void sensor_handler(void* parameters);
+static void task2_handler(void* parameters);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -94,7 +111,7 @@ static int8_t bme680_htr_config(struct bme68x_dev*);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+	BaseType_t status;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -118,28 +135,16 @@ int main(void)
   MX_I2C1_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  struct bme68x_dev bme;
-  struct bme68x_data data;
-  char msg[100];
-  uint8_t dev_addr;
-  int len;
   int8_t result;
-  uint32_t del_period;
 
-  dev_addr = BME68X_I2C_ADDR_HIGH;
-  bme.intf = BME68X_I2C_INTF;
-  bme.read = user_i2c_read;
-  bme.write = user_i2c_write;
-  bme.delay_us = bme68x_delay_us;
-  bme.intf_ptr = &dev_addr;
-  bme.amb_temp = 25;
-  printmsg(begin_msg);
+  //// Set up sensor
+  // Initialize the interface
+  bme680_interface_init(&bme);
   // initialize
   result = bme68x_init(&bme);
 	print_error(result);
 	if(result != BME68X_OK)
 	{
-		// print error using UART
 		printmsg(init_fail);
 	}
 	else
@@ -150,61 +155,39 @@ int main(void)
   result = bme680_config(&bme);
   if(result != BME68X_OK)
   {
-  	// print error using UART
   	printmsg(conf_failt);
   }
-  else
-  {
-  	printmsg(conf_suc);
-  }
+	else
+	{
+		printmsg(conf_suc);
+	}
   // configure heater
   result = bme680_htr_config(&bme);
   if(result != BME68X_OK)
   {
-  	// print error using UART
   	printmsg(htr_conf_fail);
   }
-  else
-  {
-  	printmsg(htr_conf_suc);
-  }
-//  // set operation mode
-//  result = bme68x_set_op_mode(BME68X_FORCED_MODE, &bme);
-//  if(result != BME68X_OK)
-//  {
-//  	printmsg(op_mode_fail);
-//  }
-//  else
-//  {
-//  	printmsg(op_mode_suc);
-//  }
+	else
+	{
+		printmsg(htr_conf_suc);
+	}
+
+  //// Set task
+  DWT_CTRL |= ( 1 << 0 );
+
+  status = xTaskCreate(sensor_handler, "Sensor_Task", 200, NULL, 2, &sensor_handle);
+  configASSERT(status == pdPASS);
+
+  status = xTaskCreate(task2_handler, "TASK_2", 200, "GREEN LED", 3, &task2_handle);
+  configASSERT(status == pdPASS);
+  // start scheduler
+  vTaskStartScheduler();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-  	result = bme68x_set_op_mode(BME68X_FORCED_MODE, &bme);
-		del_period = bme68x_get_meas_dur(BME68X_FORCED_MODE, &sensor_conf, &bme) + (htr_conf.heatr_dur * 1000);
-		bme.delay_us(del_period, bme.intf_ptr);
-  	// get data
-  	result = bme68x_get_data(BME68X_FORCED_MODE, &data, &n_fields, &bme);
-  	print_error(result);
-  	if(result == 0)
-  	{
-  		// print out data
-  		printmsg(rd_dt_suc);
-  		int len = snprintf(msg, 100, "Temperature: %.2f, Pressure: %.2f, Humidity: %.2f\n", data.temperature, data.pressure, data.humidity);
-  		HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
-  	}
-  	else
-  	{
-  		// print out error
-  		printmsg(rd_dt_fail);
-  		len = snprintf(msg, 50, "result of data getting: %d\n", result);
-  		HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
-  	}
-  	HAL_Delay(500);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -485,6 +468,18 @@ void bme68x_delay_us(uint32_t period, void *ntf_ptr)
 	HAL_Delay(period/1000);
 }
 
+static void bme680_interface_init(struct bme68x_dev* dev_ptr)
+{
+  uint8_t dev_addr;
+	dev_addr = BME68X_I2C_ADDR_HIGH;
+	dev_ptr -> intf = BME68X_I2C_INTF;
+	dev_ptr -> read = user_i2c_read;
+	dev_ptr -> write = user_i2c_write;
+	dev_ptr -> delay_us = bme68x_delay_us;
+	dev_ptr -> intf_ptr = &dev_addr;
+	dev_ptr -> amb_temp = 25;
+}
+
 static int8_t bme680_config(struct bme68x_dev* bme680_ptr)
 {
 	sensor_conf.filter = iir_filter;
@@ -566,7 +561,81 @@ void print_error(int8_t result)
 		printmsg(return_msg);
 	}
 }
+
+static void sensor_handler(void* parameters)
+{
+  char msg[100];
+  int len;
+  int8_t result;
+  uint32_t del_period;
+  uint8_t num_fail_2_reset = 0;
+	while(1)
+	{
+		result = bme68x_set_op_mode(BME68X_FORCED_MODE, &bme);
+		del_period = bme68x_get_meas_dur(BME68X_FORCED_MODE, &sensor_conf, &bme) + (htr_conf.heatr_dur * 1000);
+		bme.delay_us(del_period, bme.intf_ptr);
+		// get data
+		result = bme68x_get_data(BME68X_FORCED_MODE, &data, &n_fields, &bme);
+		print_error(result);
+		if(result == 0)
+		{
+			// print out data
+			printmsg(rd_dt_suc);
+			int len = snprintf(msg, 100, "Temperature: %.2f, Pressure: %.2f, Humidity: %.2f\n", data.temperature, data.pressure, data.humidity);
+			HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
+		}
+		else
+		{
+			// print out error
+			num_fail_2_reset++;
+			printmsg(rd_dt_fail);
+			len = snprintf(msg, 50, "result of data getting: %d\n", result);
+			HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
+			if(num_fail_2_reset >= max_number_of_data_fail)
+			{
+				num_fail_2_reset = 0;
+				bme68x_soft_reset(&bme);
+			}
+		}
+		HAL_Delay(500);
+	}
+}
+
+static void task2_handler(void* parameters)
+{
+  char msg[100];
+  int len;
+	while(1)
+	{
+		len = snprintf(msg, 100, "%s\n", (char*)parameters);
+		HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
+		HAL_GPIO_TogglePin(GPIOD, LED_GREEN_PIN);
+		vTaskDelay(pdMS_TO_TICKS(100));
+		HAL_Delay(200);
+	}
+}
 /* USER CODE END 4 */
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM6 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM6) {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+
+  /* USER CODE END Callback 1 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
