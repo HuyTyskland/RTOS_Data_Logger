@@ -24,6 +24,7 @@
 #include<stdio.h>
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 #include "string.h"
 #include "bme680.h"
 /* USER CODE END Includes */
@@ -73,16 +74,21 @@ const char *op_mode_suc = "Setting Op Mode success\n";
 const char *rd_dt_fail = "Data reading fail\n";
 const char *rd_dt_suc = "Data reading success\n";
 
+const char *process_fail = "Processed Data is corrupted!\n";
+
 uint8_t n_fields;
 
 struct bme68x_conf sensor_conf;
 struct bme68x_heatr_conf htr_conf;
 
 TaskHandle_t sensor_handle;
-TaskHandle_t task2_handle;
+TaskHandle_t processing_handle;
 
 struct bme68x_dev bme;
 struct bme68x_data data;
+
+QueueHandle_t measurement_data_queue;
+QueueHandle_t display_information_queue;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -96,7 +102,7 @@ static int8_t bme680_config(struct bme68x_dev*);
 static int8_t bme680_htr_config(struct bme68x_dev*);
 
 static void sensor_handler(void* parameters);
-static void task2_handler(void* parameters);
+static void processing_handler(void* parameters);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -172,14 +178,20 @@ int main(void)
 		printmsg(htr_conf_suc);
 	}
 
-  //// Set task
+  //// Set up task
   DWT_CTRL |= ( 1 << 0 );
 
   status = xTaskCreate(sensor_handler, "Sensor_Task", 200, NULL, 2, &sensor_handle);
   configASSERT(status == pdPASS);
 
-  status = xTaskCreate(task2_handler, "TASK_2", 200, "GREEN LED", 3, &task2_handle);
+  status = xTaskCreate(processing_handler, "Processing_Task", 200, "PROCESSING", 2, &processing_handle);
   configASSERT(status == pdPASS);
+
+  // set up queue
+  measurement_data_queue = xQueueCreate(10, sizeof(size_t));
+  configASSERT(measurement_data_queue != NULL);
+  display_information_queue = xQueueCreate(10, sizeof(char));
+  configASSERT(display_information_queue != NULL);
   // start scheduler
   vTaskStartScheduler();
   /* USER CODE END 2 */
@@ -582,7 +594,7 @@ static void sensor_handler(void* parameters)
 			// print out data
 			printmsg(rd_dt_suc);
 			int len = snprintf(msg, 100, "Temperature: %.2f, Pressure: %.2f, Humidity: %.2f\n", data.temperature, data.pressure, data.humidity);
-			HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
+			//HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
 		}
 		else
 		{
@@ -590,28 +602,42 @@ static void sensor_handler(void* parameters)
 			num_fail_2_reset++;
 			printmsg(rd_dt_fail);
 			len = snprintf(msg, 50, "result of data getting: %d\n", result);
-			HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
+			//HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
 			if(num_fail_2_reset >= max_number_of_data_fail)
 			{
 				num_fail_2_reset = 0;
 				bme68x_soft_reset(&bme);
 			}
+			// put place holder into data
+			data.temperature = 99.99;
+			data.pressure = 99.99;
+			data.humidity = 99.99;
 		}
+		xQueueSend(measurement_data_queue, &data, portMAX_DELAY);
+		xTaskNotify(processing_handle, 0, eNoAction);
 		HAL_Delay(500);
 	}
 }
 
-static void task2_handler(void* parameters)
+static void processing_handler(void* parameters)
 {
-  char msg[100];
-  int len;
+	char msg[100];
+	int len;
+	struct bme68x_data received_data;
 	while(1)
 	{
-		len = snprintf(msg, 100, "%s\n", (char*)parameters);
-		HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
-		HAL_GPIO_TogglePin(GPIOD, LED_GREEN_PIN);
-		vTaskDelay(pdMS_TO_TICKS(100));
-		HAL_Delay(200);
+		// wait for data to be insert into the measurement queue
+		xTaskNotifyWait(0, 0, NULL, portMAX_DELAY);
+		xQueueReceive(measurement_data_queue, &received_data, 0);
+		if((received_data.temperature == 99.99) && (received_data.pressure == 99.99) && (received_data.humidity == 99.99))
+		{
+			xQueueSend(display_information_queue, process_fail, portMAX_DELAY);
+		}
+		else
+		{
+			int len = snprintf(msg, 100, "Temperature: %.2f, Pressure: %.2f, Humidity: %.2f\n", data.temperature, data.pressure, data.humidity);
+			xQueueSend(display_information_queue, &msg, portMAX_DELAY);
+		}
 	}
 }
 /* USER CODE END 4 */
