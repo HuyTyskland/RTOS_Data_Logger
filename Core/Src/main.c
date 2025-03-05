@@ -76,6 +76,10 @@ const char *rd_dt_suc = "Data reading success\n";
 
 const char *process_fail = "Processed Data is corrupted!\n";
 
+const char *sensor_task = "This is sensor task!!!!!!\n";
+const char *processing_task = "This is processing task!!!!!!\n";
+const char *displaying_task = "This is displaying task!!!!!!\n";
+
 uint8_t n_fields;
 
 struct bme68x_conf sensor_conf;
@@ -83,9 +87,9 @@ struct bme68x_heatr_conf htr_conf;
 
 TaskHandle_t sensor_handle;
 TaskHandle_t processing_handle;
+TaskHandle_t displaying_handle;
 
 struct bme68x_dev bme;
-struct bme68x_data data;
 
 QueueHandle_t measurement_data_queue;
 QueueHandle_t display_information_queue;
@@ -103,6 +107,7 @@ static int8_t bme680_htr_config(struct bme68x_dev*);
 
 static void sensor_handler(void* parameters);
 static void processing_handler(void* parameters);
+static void displaying_handler(void* parameters);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -181,10 +186,13 @@ int main(void)
   //// Set up task
   DWT_CTRL |= ( 1 << 0 );
 
-  status = xTaskCreate(sensor_handler, "Sensor_Task", 200, NULL, 2, &sensor_handle);
+  status = xTaskCreate(sensor_handler, "Sensor_Task", 250, NULL, 2, &sensor_handle);
   configASSERT(status == pdPASS);
 
-  status = xTaskCreate(processing_handler, "Processing_Task", 200, "PROCESSING", 2, &processing_handle);
+  status = xTaskCreate(processing_handler, "Processing_Task", 250, NULL, 2, &processing_handle);
+  configASSERT(status == pdPASS);
+
+  status = xTaskCreate(displaying_handler, "Displaying_Task", 250, NULL, 2, &displaying_handle);
   configASSERT(status == pdPASS);
 
   // set up queue
@@ -576,8 +584,11 @@ void print_error(int8_t result)
 
 static void sensor_handler(void* parameters)
 {
-  char msg[100];
-  int len;
+	struct bme68x_data data;
+	BaseType_t status;
+	printmsg(sensor_task);
+  //char msg[100];
+  //int len;
   int8_t result;
   uint32_t del_period;
   uint8_t num_fail_2_reset = 0;
@@ -593,7 +604,7 @@ static void sensor_handler(void* parameters)
 		{
 			// print out data
 			printmsg(rd_dt_suc);
-			int len = snprintf(msg, 100, "Temperature: %.2f, Pressure: %.2f, Humidity: %.2f\n", data.temperature, data.pressure, data.humidity);
+			//len = snprintf(msg, 100, "Temperature: %.2f, Pressure: %.2f, Humidity: %.2f\n", data.temperature, data.pressure, data.humidity);
 			//HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
 		}
 		else
@@ -601,7 +612,7 @@ static void sensor_handler(void* parameters)
 			// print out error
 			num_fail_2_reset++;
 			printmsg(rd_dt_fail);
-			len = snprintf(msg, 50, "result of data getting: %d\n", result);
+			//len = snprintf(msg, 50, "result of data getting: %d\n", result);
 			//HAL_UART_Transmit(&huart2, (uint8_t *)msg, len, HAL_MAX_DELAY);
 			if(num_fail_2_reset >= max_number_of_data_fail)
 			{
@@ -614,15 +625,17 @@ static void sensor_handler(void* parameters)
 			data.humidity = 99.99;
 		}
 		xQueueSend(measurement_data_queue, &data, portMAX_DELAY);
-		xTaskNotify(processing_handle, 0, eNoAction);
+		status = xTaskNotify(processing_handle, 0, eNoAction);
+		configASSERT(status == pdPASS);
 		HAL_Delay(500);
 	}
 }
 
 static void processing_handler(void* parameters)
 {
+	BaseType_t status;
+	printmsg(processing_task);
 	char msg[100];
-	int len;
 	struct bme68x_data received_data;
 	while(1)
 	{
@@ -631,13 +644,31 @@ static void processing_handler(void* parameters)
 		xQueueReceive(measurement_data_queue, &received_data, 0);
 		if((received_data.temperature == 99.99) && (received_data.pressure == 99.99) && (received_data.humidity == 99.99))
 		{
-			xQueueSend(display_information_queue, process_fail, portMAX_DELAY);
+			xQueueSend(display_information_queue, &process_fail, portMAX_DELAY);
 		}
 		else
 		{
-			int len = snprintf(msg, 100, "Temperature: %.2f, Pressure: %.2f, Humidity: %.2f\n", data.temperature, data.pressure, data.humidity);
-			xQueueSend(display_information_queue, &msg, portMAX_DELAY);
+			snprintf(msg, 100, "Temperature: %.2f, Pressure: %.2f, Humidity: %.2f\n", received_data.temperature, received_data.pressure, received_data.humidity);
+			xQueueSend(display_information_queue, (void*)&msg, portMAX_DELAY);
 		}
+		status = xTaskNotify(displaying_handle, 0, eNoAction);
+		configASSERT(status == pdPASS);
+	}
+}
+
+static void displaying_handler(void* parameters)
+{
+	BaseType_t status;
+	printmsg(displaying_task);
+	char msg[100];
+	while(1)
+	{
+		status = xTaskNotifyWait(0, 0, NULL, portMAX_DELAY);
+		configASSERT(status == pdPASS);
+		xQueueReceive(display_information_queue, (void*)&msg, portMAX_DELAY);
+		printmsg(msg);
+		xTaskNotify(sensor_handle, 0, eNoAction);
+		HAL_Delay(500);
 	}
 }
 /* USER CODE END 4 */
